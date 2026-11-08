@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Điều khiển xe ESP32-S3</title>
+<style>
+:root{
+  color-scheme: light dark;
+  --bg:#f3f5f7; --card:#ffffff; --text:#14202b; --muted:#66727e; --line:#dde3e8;
+  --accent:#0f7b6c; --accent-text:#ffffff; --btn:#e9eef2;
+  --danger:#c62f2f; --ok:#1f9d55; --dot-off:#cfd7dd; --dot-on:#0f7b6c;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#10161b; --card:#1a232b; --text:#e8eef2; --muted:#93a1ac; --line:#2a3640;
+    --accent:#2fc0a8; --accent-text:#08201b; --btn:#26323c;
+    --danger:#ff6b6b; --ok:#4cd68a; --dot-off:#33424d; --dot-on:#2fc0a8;
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  min-height:100vh;padding:16px;display:flex;justify-content:center;
+  touch-action:manipulation;user-select:none;-webkit-user-select:none;
+}
+.app{width:100%;max-width:440px;display:flex;flex-direction:column;gap:12px}
+header{display:flex;align-items:center;justify-content:space-between}
+h1{font-size:18px;margin:0;font-weight:650}
+.pill{
+  font-size:13px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);
+  color:var(--muted);display:flex;gap:6px;align-items:center;background:var(--card);
+}
+.pill i{width:8px;height:8px;border-radius:50%;background:var(--danger)}
+.pill.on i{background:var(--ok)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+.cardhead{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:10px}
+button{font:inherit;color:inherit;border:0;background:var(--btn);border-radius:12px;cursor:pointer}
+
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.modes button{padding:12px 6px;font-size:14px;font-weight:600}
+.modes button.active{background:var(--accent);color:var(--accent-text)}
+.modes #m-stop.active{background:var(--danger);color:#fff}
+
+.dots{display:flex;justify-content:space-between;padding:0 8px}
+.dot{width:38px;height:38px;border-radius:50%;background:var(--dot-off);transition:background .08s}
+.dot.on{background:var(--dot-on)}
+
+.pad{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+  max-width:300px;margin:0 auto;
+}
+.pad button{aspect-ratio:1;font-size:30px;touch-action:none}
+.pad button.pressed{background:var(--accent);color:var(--accent-text)}
+.pad .stop{color:var(--danger);font-size:26px}
+.pad.disabled{opacity:.45;pointer-events:none}
+.hint{font-size:12.5px;color:var(--muted);text-align:center;margin:12px 0 0;line-height:1.45}
+
+.row{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:6px}
+.row b{color:var(--text)}
+input[type=range]{width:100%;accent-color:var(--accent);margin:0 0 14px}
+input[type=range]:last-child{margin-bottom:0}
+details summary{cursor:pointer;font-size:14px;color:var(--muted);padding:2px 0 10px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <h1>Xe ESP32-S3</h1>
+    <div class="pill" id="conn"><i></i><span id="connTxt">Đang kết nối…</span></div>
+  </header>
+
+  <section class="card">
+    <div class="modes">
+      <button id="m-manual" onclick="setMode('manual')">Điều khiển tay</button>
+      <button id="m-line" onclick="setMode('line')">Dò line</button>
+      <button id="m-stop" class="active" onclick="setMode('stop')">Dừng</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="cardhead"><span>Cảm biến dò line</span><span id="err"></span></div>
+    <div class="dots">
+      <div class="dot" id="d0"></div>
+      <div class="dot" id="d1"></div>
+      <div class="dot" id="d2"></div>
+      <div class="dot" id="d3"></div>
+      <div class="dot" id="d4"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="pad disabled" id="pad">
+      <span></span><button data-d="F">▲</button><span></span>
+      <button data-d="L">◀</button><button class="stop" id="padStop">■</button><button data-d="R">▶</button>
+      <span></span><button data-d="B">▼</button><span></span>
+    </div>
+    <p class="hint">Chọn “Điều khiển tay”, giữ nút để xe chạy, thả ra xe sẽ dừng.<br>
+      Bàn phím: W A S D hoặc phím mũi tên. Phím cách để dừng.</p>
+  </section>
+
+  <section class="card">
+    <div class="row"><span>Tốc độ</span><b id="spdV">180</b></div>
+    <input type="range" id="spd" min="90" max="255" step="5" value="180">
+
+    <details>
+      <summary>Chỉnh thông số dò line</summary>
+      <div class="row"><span>KP (độ bám line)</span><b id="kpV">40</b></div>
+      <input type="range" id="kp" min="0" max="100" step="1" value="40">
+      <div class="row"><span>KD (giảm lắc)</span><b id="kdV">25</b></div>
+      <input type="range" id="kd" min="0" max="100" step="1" value="25">
+    </details>
+  </section>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+let speed = 180;
+let held = null;
+let timer = null;
+let curMode = 'stop';
+let synced = false;
+let modeLock = 0;
+let ws = null;
+
+/* ---------- Kết nối WebSocket (giữ 1 kết nối, tự nối lại khi mất) ---------- */
+function connect() {
+  ws = new WebSocket('ws://' + location.host + '/ws');
+  ws.onopen = () => setOnline(true);
+  ws.onmessage = e => {
+    try { applyStatus(JSON.parse(e.data)); } catch (_) {}
+  };
+  ws.onclose = () => {
+    setOnline(false);
+    ws = null;
+    synced = false;
+    held = null;
+    clearInterval(timer);
+    setTimeout(connect, 1000);
+  };
+  ws.onerror = () => { try { ws.close(); } catch (_) {} };
+}
+
+function send(msg) {
+  if (ws && ws.readyState === 1) ws.send(msg);
+}
+
+function setOnline(ok) {
+  $('conn').classList.toggle('on', ok);
+  $('connTxt').textContent = ok ? 'Đã kết nối' : 'Mất kết nối';
+}
+
+/* ---------- Cập nhật giao diện ---------- */
+function showMode(m) {
+  curMode = m;
+  for (const k of ['manual', 'line', 'stop']) {
+    $('m-' + k).classList.toggle('active', m === k);
+  }
+  $('pad').classList.toggle('disabled', m !== 'manual');
+}
+
+function applyStatus(s) {
+  if (Date.now() > modeLock) showMode(s.mode);
+  s.line.forEach((v, i) => $('d' + i).classList.toggle('on', !!v));
+  $('err').textContent = s.mode === 'line' ? 'Độ lệch: ' + s.err.toFixed(2) : '';
+
+  if (!synced) {               // chỉ đồng bộ thanh trượt một lần mỗi lần kết nối
+    synced = true;
+    speed = s.speed;
+    $('spd').value = s.speed;  $('spdV').textContent = s.speed;
+    $('kp').value = s.kp;      $('kpV').textContent = Math.round(s.kp);
+    $('kd').value = s.kd;      $('kdV').textContent = Math.round(s.kd);
+  }
+}
+
+function setMode(m) {
+  release();
+  modeLock = Date.now() + 500;   // tránh nhấp nháy khi trạng thái cũ còn đang được đẩy về
+  showMode(m);
+  send('M,' + m);
+}
+
+/* ---------- Giữ nút để chạy, thả để dừng ----------
+   Lệnh được gửi ngay khi nhấn và lặp lại mỗi 100 ms.
+   Nếu mất sóng, ESP32 tự dừng xe sau 0,4 giây. */
+function sendCmd() {
+  if (held) send('D,' + held + ',' + speed);
+}
+
+function press(d) {
+  if (curMode !== 'manual') return;
+  held = d;
+  sendCmd();
+  clearInterval(timer);
+  timer = setInterval(sendCmd, 100);
+}
+
+function release() {
+  clearInterval(timer);
+  if (held === null) return;
+  held = null;
+  send('D,S,' + speed);
+}
+
+function bindBtn(el, d) {
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    el.classList.add('pressed');
+    press(d);
+  });
+  const up = () => { el.classList.remove('pressed'); release(); };
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('lostpointercapture', up);
+}
+
+document.querySelectorAll('[data-d]').forEach(b => bindBtn(b, b.dataset.d));
+$('padStop').addEventListener('click', () => { release(); send('D,S,' + speed); });
+
+/* ---------- Bàn phím ---------- */
+const KEYS = {
+  ArrowUp: 'F', w: 'F', W: 'F',
+  ArrowDown: 'B', s: 'B', S: 'B',
+  ArrowLeft: 'L', a: 'L', A: 'L',
+  ArrowRight: 'R', d: 'R', D: 'R'
+};
+addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (e.key === ' ') { e.preventDefault(); setMode('stop'); return; }
+  const d = KEYS[e.key];
+  if (d) { e.preventDefault(); press(d); }
+});
+addEventListener('keyup', e => { if (KEYS[e.key]) release(); });
+
+/* An toàn: rời trang, khóa màn hình hoặc mất focus thì thả nút */
+addEventListener('blur', release);
+document.addEventListener('visibilitychange', () => { if (document.hidden) release(); });
+addEventListener('contextmenu', e => e.preventDefault());
+
+/* ---------- Thanh trượt ---------- */
+function sendParams() {
+  send('P,' + $('spd').value + ',' + $('kp').value + ',' + $('kd').value);
+}
+$('spd').addEventListener('input', e => { speed = +e.target.value; $('spdV').textContent = speed; });
+$('spd').addEventListener('change', sendParams);
+$('kp').addEventListener('input', e => { $('kpV').textContent = e.target.value; });
+$('kp').addEventListener('change', sendParams);
+$('kd').addEventListener('input', e => { $('kdV').textContent = e.target.value; });
+$('kd').addEventListener('change', sendParams);
+
+connect();
+</script>
+</body>
+</html>

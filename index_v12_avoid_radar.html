@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Xe Tự Hành ESP32-S3</title>
+<style>
+:root{
+  color-scheme: light dark;
+  --bg:#f3f5f7; --card:#ffffff; --text:#14202b; --muted:#66727e; --line:#dde3e8;
+  --accent:#0f7b6c; --accent-text:#ffffff; --btn:#e9eef2;
+  --danger:#c62f2f; --warning:#e67e22; --ok:#1f9d55; --info:#0284c7; --dot-off:#cfd7dd; --dot-on:#0f7b6c;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#10161b; --card:#1a232b; --text:#e8eef2; --muted:#93a1ac; --line:#2a3640;
+    --accent:#2fc0a8; --accent-text:#08201b; --btn:#26323c;
+    --danger:#ff6b6b; --warning:#f39c12; --ok:#4cd68a; --info:#38bdf8; --dot-off:#33424d; --dot-on:#2fc0a8;
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  min-height:100vh;padding:16px;display:flex;justify-content:center;
+  touch-action:manipulation;user-select:none;-webkit-user-select:none;
+}
+.app{width:100%;max-width:440px;display:flex;flex-direction:column;gap:12px}
+header{display:flex;align-items:center;justify-content:space-between}
+h1{font-size:18px;margin:0;font-weight:650}
+.pill{
+  font-size:13px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);
+  color:var(--muted);display:flex;gap:6px;align-items:center;background:var(--card);
+}
+.pill i{width:8px;height:8px;border-radius:50%;background:var(--danger)}
+.pill.on i{background:var(--ok)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+.cardhead{display:flex;justify-content:space-between;align-items:center;font-size:14px;color:var(--muted);margin-bottom:10px}
+button{font:inherit;color:inherit;border:0;background:var(--btn);border-radius:12px;cursor:pointer;transition:background .15s}
+button:active{opacity:0.85}
+
+.modes{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.modes button{padding:12px 6px;font-size:14px;font-weight:600}
+.modes button.active{background:var(--accent);color:var(--accent-text)}
+.modes #m-stop.active{background:var(--danger);color:#fff}
+
+.dist-badge{
+  font-weight:700;font-size:14px;padding:2px 8px;border-radius:6px;
+  background:var(--btn);color:var(--ok);transition:color .2s;
+}
+.dist-track{
+  height:10px;background:var(--btn);border-radius:999px;overflow:hidden;margin-bottom:12px;
+}
+.dist-fill{
+  height:100%;background:var(--ok);border-radius:999px;
+  transition:width .15s ease-out, background .2s;
+}
+.servo-row{
+  display:flex;gap:6px;align-items:center;justify-content:space-between;font-size:13px;
+}
+.servo-row button{
+  flex:1;padding:8px 4px;font-size:12.5px;font-weight:500;
+}
+
+.sub-banner{
+  padding:6px 10px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;
+  margin-bottom:10px;display:none;
+}
+.sub-banner.show{display:block}
+.sub-banner.bypassing{background:rgba(230,126,34,.15);color:var(--warning)}
+.sub-banner.finding{background:rgba(2,132,199,.15);color:var(--info)}
+.sub-banner.recovered{background:rgba(31,157,85,.15);color:var(--ok)}
+
+.dots{display:flex;justify-content:space-between;padding:0 8px}
+.dot{width:38px;height:38px;border-radius:50%;background:var(--dot-off);transition:background .08s}
+.dot.on{background:var(--dot-on)}
+
+.pad{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+  max-width:300px;margin:0 auto;
+}
+.pad button{aspect-ratio:1;font-size:30px;touch-action:none}
+.pad button.pressed{background:var(--accent);color:var(--accent-text)}
+.pad .stop{color:var(--danger);font-size:26px}
+.pad.disabled{opacity:.45;pointer-events:none}
+.hint{font-size:12.5px;color:var(--muted);text-align:center;margin:12px 0 0;line-height:1.45}
+
+.row{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:6px}
+.row b{color:var(--text)}
+input[type=range]{width:100%;accent-color:var(--accent);margin:0 0 14px}
+input[type=range]:last-child{margin-bottom:0}
+details summary{cursor:pointer;font-size:14px;color:var(--muted);padding:2px 0 10px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <h1>Xe Tự Hành ESP32-S3</h1>
+    <div class="pill" id="conn"><i></i><span id="connTxt">Đang kết nối…</span></div>
+  </header>
+
+  <section class="card">
+    <div class="modes">
+      <button id="m-manual" onclick="setMode('manual')">Điều khiển tay</button>
+      <button id="m-line" onclick="setMode('line')">Dò line + Né line</button>
+      <button id="m-avoid" onclick="setMode('avoid')">Né tự do</button>
+      <button id="m-stop" class="active" onclick="setMode('stop')">Dừng khẩn cấp</button>
+    </div>
+  </section>
+
+  <!-- Thông báo trạng thái Né & Tìm lại Line -->
+  <div id="subBanner" class="sub-banner"></div>
+
+  <!-- Card cảm biến khoảng cách & Servo -->
+  <section class="card">
+    <div class="cardhead">
+      <span>Cảm biến khoảng cách (HC-SR04)</span>
+      <span id="distVal" class="dist-badge">-- cm</span>
+    </div>
+    <div class="dist-track">
+      <div id="distBar" class="dist-fill" style="width: 100%"></div>
+    </div>
+    <div class="servo-row">
+      <button onclick="send('SV,150')">◀ Trái (150°)</button>
+      <button onclick="send('SV,90')">▲ Thẳng (90°)</button>
+      <button onclick="send('SV,30')">▶ Phải (30°)</button>
+    </div>
+  </section>
+
+  <!-- Card cảm biến dò line -->
+  <section class="card">
+    <div class="cardhead"><span>Cảm biến dò line (5 mắt)</span><span id="err"></span></div>
+    <div class="dots">
+      <div class="dot" id="d0"></div>
+      <div class="dot" id="d1"></div>
+      <div class="dot" id="d2"></div>
+      <div class="dot" id="d3"></div>
+      <div class="dot" id="d4"></div>
+    </div>
+  </section>
+
+  <!-- Bàn điều khiển tay -->
+  <section class="card">
+    <div class="pad disabled" id="pad">
+      <button data-d="FL" title="Cua lướt trái">↖</button><button data-d="F">▲</button><button data-d="FR" title="Cua lướt phải">↗</button>
+      <button data-d="L" title="Rẽ trái tại chỗ (Trái lùi, Phải tiến)">◀</button><button class="stop" id="padStop">■</button><button data-d="R" title="Rẽ phải tại chỗ (Trái tiến, Phải lùi)">▶</button>
+      <button data-d="SL" title="Xoay tròn trái tại chỗ">↺</button><button data-d="B">▼</button><button data-d="SR" title="Xoay tròn phải tại chỗ">↻</button>
+    </div>
+    <p class="hint">Chọn “Điều khiển tay”, nhấn giữ nút để chạy, thả ra để dừng.<br>
+      ◀ / ▶ hoặc ↺ / ↻: Rẽ / Xoay tại chỗ (Bánh trái lùi, bánh phải tiến).<br>
+      ↖ / ↗: Cua lướt vi sai | Phím: W A S D / Mũi tên. Q/E: Xoay. Space: Dừng.</p>
+  </section>
+
+  <!-- Cài đặt tốc độ & PID -->
+  <section class="card">
+    <div class="row"><span>Tốc độ</span><b id="spdV">40%</b></div>
+    <input type="range" id="spd" min="10" max="100" step="5" value="40">
+
+    <details>
+      <summary>Chỉnh thông số dò line (PID)</summary>
+      <div class="row"><span>KP (độ bám line)</span><b id="kpV">30</b></div>
+      <input type="range" id="kp" min="0" max="100" step="1" value="30">
+      <div class="row"><span>KD (giảm lắc)</span><b id="kdV">20</b></div>
+      <input type="range" id="kd" min="0" max="100" step="1" value="20">
+    </details>
+
+    <details style="margin-top:10px">
+      <summary>Cân chỉnh chiều động cơ (Test bánh xe)</summary>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button style="flex:1;padding:8px;font-size:13px" onclick="send('TEST,L')">Quay thử Bánh TRÁI</button>
+        <button style="flex:1;padding:8px;font-size:13px" onclick="send('TEST,R')">Quay thử Bánh PHẢI</button>
+      </div>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;font-size:13.5px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="revL" onchange="toggleRev('L', this.checked)">
+          Đảo chiều bên TRÁI (Left Reverse)
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="revR" onchange="toggleRev('R', this.checked)">
+          Đảo chiều bên PHẢI (Right Reverse)
+        </label>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0 0;line-height:1.4">
+        💡 Kê xe hổng bánh lên sàn. Bấm “Quay thử”: nếu bánh quay lùi thay vì quay tiến thì tích chọn Đảo chiều bên đó.
+      </p>
+    </details>
+  </section>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+let speed = 40;
+let held = null;
+let timer = null;
+let curMode = 'stop';
+let synced = false;
+let modeLock = 0;
+let ws = null;
+
+/* ---------- Kết nối WebSocket ---------- */
+function connect() {
+  ws = new WebSocket('ws://' + location.host + '/ws');
+  ws.onopen = () => setOnline(true);
+  ws.onmessage = e => {
+    try { applyStatus(JSON.parse(e.data)); } catch (_) {}
+  };
+  ws.onclose = () => {
+    setOnline(false);
+    ws = null;
+    synced = false;
+    held = null;
+    clearInterval(timer);
+    setTimeout(connect, 1000);
+  };
+  ws.onerror = () => { try { ws.close(); } catch (_) {} };
+}
+
+function send(msg) {
+  if (ws && ws.readyState === 1) ws.send(msg);
+}
+
+function setOnline(ok) {
+  $('conn').classList.toggle('on', ok);
+  $('connTxt').textContent = ok ? 'Đã kết nối' : 'Mất kết nối';
+}
+
+function toggleRev(side, checked) {
+  send('REV,' + side + ',' + (checked ? '1' : '0'));
+}
+
+/* ---------- Cập nhật giao diện ---------- */
+function showMode(m) {
+  curMode = m;
+  for (const k of ['manual', 'line', 'avoid', 'stop']) {
+    const btn = $('m-' + k);
+    if (btn) btn.classList.toggle('active', m === k);
+  }
+  $('pad').classList.toggle('disabled', m !== 'manual');
+}
+
+function applyStatus(s) {
+  if (Date.now() > modeLock) showMode(s.mode);
+
+  // Banner thông báo né line & tìm line (Hướng A)
+  const banner = $('subBanner');
+  if (s.sub === 'bypassing') {
+    banner.className = 'sub-banner show bypassing';
+    banner.textContent = '⚠️ Đang lùi và bẻ lái né vật cản...';
+  } else if (s.sub === 'clearing_obs') {
+    banner.className = 'sub-banner show finding';
+    banner.textContent = '📡 Radar Servo đang quét sườn vật cản...';
+  } else if (s.sub === 'finding_line') {
+    banner.className = 'sub-banner show finding';
+    banner.textContent = '🔍 Đã qua vật cản, đang tìm lại line...';
+  } else if (s.sub === 'line_recovered') {
+    banner.className = 'sub-banner show recovered';
+    banner.textContent = '✅ Đã tìm thấy và khóa lại đường line!';
+  } else {
+    banner.className = 'sub-banner';
+  }
+
+  // Cảm biến line
+  if (s.line) {
+    s.line.forEach((v, i) => {
+      const d = $('d' + i);
+      if (d) d.classList.toggle('on', !!v);
+    });
+  }
+  $('err').textContent = s.mode === 'line' ? 'Độ lệch: ' + s.err.toFixed(2) : '';
+
+  // Cảm biến khoảng cách
+  if (s.dist !== undefined && s.dist !== null) {
+    const d = s.dist;
+    const badge = $('distVal');
+    const bar = $('distBar');
+
+    badge.textContent = d >= 300 ? '> 300 cm' : d.toFixed(1) + ' cm';
+    const pct = Math.min(100, Math.max(5, (d / 60) * 100));
+    bar.style.width = pct + '%';
+
+    if (d <= 15) {
+      badge.style.color = 'var(--danger)';
+      bar.style.background = 'var(--danger)';
+    } else if (d <= 25) {
+      badge.style.color = 'var(--warning)';
+      bar.style.background = 'var(--warning)';
+    } else {
+      badge.style.color = 'var(--ok)';
+      bar.style.background = 'var(--ok)';
+    }
+  }
+
+  // Đảo chiều động cơ
+  if (s.rev_l !== undefined && $('revL')) $('revL').checked = !!s.rev_l;
+  if (s.rev_r !== undefined && $('revR')) $('revR').checked = !!s.rev_r;
+
+  // Đồng bộ thông số
+  if (!synced) {
+    synced = true;
+    speed = s.speed;
+    $('spd').value = s.speed;  $('spdV').textContent = s.speed + '%';
+    $('kp').value = s.kp;      $('kpV').textContent = Math.round(s.kp);
+    $('kd').value = s.kd;      $('kdV').textContent = Math.round(s.kd);
+  }
+}
+
+function setMode(m) {
+  release();
+  modeLock = Date.now() + 500;
+  showMode(m);
+  send('M,' + m);
+}
+
+/* ---------- Bàn điều khiển tay ---------- */
+function sendCmd() {
+  if (held) send('D,' + held + ',' + speed);
+}
+
+function press(d) {
+  if (curMode !== 'manual') return;
+  held = d;
+  sendCmd();
+  clearInterval(timer);
+  timer = setInterval(sendCmd, 100);
+}
+
+function release() {
+  clearInterval(timer);
+  if (held === null) return;
+  held = null;
+  send('D,S,' + speed);
+}
+
+function bindBtn(el, d) {
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    el.classList.add('pressed');
+    press(d);
+  });
+  const up = () => { el.classList.remove('pressed'); release(); };
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('lostpointercapture', up);
+}
+
+document.querySelectorAll('[data-d]').forEach(b => bindBtn(b, b.dataset.d));
+$('padStop').addEventListener('click', () => { release(); send('D,S,' + speed); });
+
+/* ---------- Bàn phím ---------- */
+const KEYS = {
+  ArrowUp: 'F', w: 'F', W: 'F',
+  ArrowDown: 'B', s: 'B', S: 'B',
+  ArrowLeft: 'L', a: 'L', A: 'L',
+  ArrowRight: 'R', d: 'R', D: 'R',
+  q: 'SL', Q: 'SL',
+  e: 'SR', E: 'SR'
+};
+addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (e.key === ' ') { e.preventDefault(); setMode('stop'); return; }
+  const d = KEYS[e.key];
+  if (d) { e.preventDefault(); press(d); }
+});
+addEventListener('keyup', e => { if (KEYS[e.key]) release(); });
+
+addEventListener('blur', release);
+document.addEventListener('visibilitychange', () => { if (document.hidden) release(); });
+addEventListener('contextmenu', e => e.preventDefault());
+
+/* ---------- Thanh trượt ---------- */
+function sendParams() {
+  send('P,' + $('spd').value + ',' + $('kp').value + ',' + $('kd').value);
+}
+$('spd').addEventListener('input', e => { speed = +e.target.value; $('spdV').textContent = speed + '%'; });
+$('spd').addEventListener('change', sendParams);
+$('kp').addEventListener('input', e => { $('kpV').textContent = e.target.value; });
+$('kp').addEventListener('change', sendParams);
+$('kd').addEventListener('input', e => { $('kdV').textContent = e.target.value; });
+$('kd').addEventListener('change', sendParams);
+
+connect();
+</script>
+</body>
+</html>
